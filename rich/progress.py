@@ -101,6 +101,7 @@ def track(
     update_period: float = 0.1,
     disable: bool = False,
     bar_width: int = 40,
+    add_spinner: bool = False,
 ) -> Iterable[ProgressType]:
     """Track progress by iterating over a sequence.
 
@@ -119,14 +120,19 @@ def track(
         update_period (float, optional): Minimum time (in seconds) between calls to update(). Defaults to 0.1.
         disable (bool, optional): Disable display of progress.
         bar_width (int, optional): Width of progress bar section. Defaults to 40.
+        add_spinner (bool, optional): Add a default-type spinner to the bar.
     Returns:
         Iterable[ProgressType]: An iterable of the values in the sequence.
 
     """
+    columns: List["ProgressColumn"] = []
 
-    columns: List["ProgressColumn"] = (
-        [TextColumn("[progress.description]{task.description}")] if description else []
-    )
+    if add_spinner:
+        columns.append(SpinnerColumn())
+
+    if description:
+        columns.append(TextColumn("[progress.description]{task.description}"))
+
     columns.extend(
         (
             BarColumn(
