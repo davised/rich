@@ -100,6 +100,7 @@ def track(
     pulse_style: StyleType = "bar.pulse",
     update_period: float = 0.1,
     disable: bool = False,
+    bar_width: int = 40,
 ) -> Iterable[ProgressType]:
     """Track progress by iterating over a sequence.
 
@@ -117,6 +118,7 @@ def track(
         pulse_style (StyleType, optional): Style for pulsing bars. Defaults to "bar.pulse".
         update_period (float, optional): Minimum time (in seconds) between calls to update(). Defaults to 0.1.
         disable (bool, optional): Disable display of progress.
+        bar_width (int, optional): Width of progress bar section. Defaults to 40.
     Returns:
         Iterable[ProgressType]: An iterable of the values in the sequence.
 
@@ -132,6 +134,7 @@ def track(
                 complete_style=complete_style,
                 finished_style=finished_style,
                 pulse_style=pulse_style,
+                bar_width=bar_width,
             ),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
