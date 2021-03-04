@@ -1,4 +1,4 @@
-from typing import NamedTuple, Optional
+from typing import Dict, NamedTuple, Optional
 
 from .cells import cell_len, set_cell_size
 from .style import Style
@@ -9,7 +9,8 @@ from typing import Iterable, List, Tuple
 
 
 class Segment(NamedTuple):
-    """A piece of text with associated style.
+    """A piece of text with associated style. Segments are produced by the Console render process and
+    are ultimately converted in to strings to be written to the terminal.
 
     Args:
         text (str): A piece of text.
@@ -69,24 +70,41 @@ class Segment(NamedTuple):
 
     @classmethod
     def apply_style(
-        cls, segments: Iterable["Segment"], style: Style = None
+        cls,
+        segments: Iterable["Segment"],
+        style: Style = None,
+        post_style: Style = None,
     ) -> Iterable["Segment"]:
-        """Apply a style to an iterable of segments.
+        """Apply style(s) to an iterable of segments.
+
+        Returns an iterable of segments where the style is replaced by ``style + segment.style + post_style``.
 
         Args:
             segments (Iterable[Segment]): Segments to process.
-            style (Style, optional): A style to apply. Defaults to None.
+            style (Style, optional): Base style. Defaults to None.
+            post_style (Style, optional): Style to apply on top of segment style. Defaults to None.
 
         Returns:
             Iterable[Segments]: A new iterable of segments (possibly the same iterable).
         """
-        if style is None:
-            return segments
-        apply = style.__add__
-        return (
-            cls(text, None if is_control else apply(style), is_control)
-            for text, style, is_control in segments
-        )
+        if style:
+            apply = style.__add__
+            segments = (
+                cls(text, None if is_control else apply(_style), is_control)
+                for text, _style, is_control in segments
+            )
+        if post_style:
+            segments = (
+                cls(
+                    text,
+                    None
+                    if is_control
+                    else (_style + post_style if _style else post_style),
+                    is_control,
+                )
+                for text, _style, is_control in segments
+            )
+        return segments
 
     @classmethod
     def filter_control(
@@ -229,7 +247,7 @@ class Segment(NamedTuple):
         """Get the length of list of segments.
 
         Args:
-            line (List[Segment]): A line encoded as a list of Segments (assumes no '\\n' characters),
+            line (List[Segment]): A line encoded as a list of Segments (assumes no '\\\\n' characters),
 
         Returns:
             int: The length of the line.
@@ -241,7 +259,7 @@ class Segment(NamedTuple):
         """Get the shape (enclosing rectangle) of a list of lines.
 
         Args:
-            lines (List[List[Segment]]): A list of lines (no '\\n' characters).
+            lines (List[List[Segment]]): A list of lines (no '\\\\n' characters).
 
         Returns:
             Tuple[int, int]: Width and height in characters.
@@ -257,6 +275,7 @@ class Segment(NamedTuple):
         width: int,
         height: int = None,
         style: Style = None,
+        new_lines: bool = False,
     ) -> List[List["Segment"]]:
         """Set the shape of a list of lines (enclosing rectangle).
 
@@ -265,23 +284,31 @@ class Segment(NamedTuple):
             width (int): Desired width.
             height (int, optional): Desired height or None for no change.
             style (Style, optional): Style of any padding added. Defaults to None.
+            new_lines (bool, optional): Padded lines should include "\n". Defaults to False.
 
         Returns:
             List[List[Segment]]: New list of lines that fits width x height.
         """
         if height is None:
             height = len(lines)
-        new_lines: List[List[Segment]] = []
-        pad_line = [Segment(" " * width, style)]
-        append = new_lines.append
+        shaped_lines: List[List[Segment]] = []
+        pad_line = (
+            [Segment(" " * width, style), Segment("\n")]
+            if new_lines
+            else [Segment(" " * width, style)]
+        )
+
+        append = shaped_lines.append
         adjust_line_length = cls.adjust_line_length
         line: Optional[List[Segment]]
-        for line, _ in zip_longest(lines, range(height)):
+        iter_lines = iter(lines)
+        for _ in range(height):
+            line = next(iter_lines, None)
             if line is None:
                 append(pad_line)
             else:
                 append(adjust_line_length(line, width, style=style))
-        return new_lines
+        return shaped_lines
 
     @classmethod
     def simplify(cls, segments: Iterable["Segment"]) -> Iterable["Segment"]:
@@ -331,17 +358,67 @@ class Segment(NamedTuple):
     def strip_styles(cls, segments: Iterable["Segment"]) -> Iterable["Segment"]:
         """Remove all styles from an iterable of segments.
 
+        Args:
+            segments (Iterable[Segment]): An iterable segments.
+
         Yields:
             Segment: Segments with styles replace with None
         """
         for text, _style, is_control in segments:
             yield cls(text, None, is_control)
 
+    @classmethod
+    def remove_color(cls, segments: Iterable["Segment"]) -> Iterable["Segment"]:
+        """Remove all color from an iterable of segments.
+
+        Args:
+            segments (Iterable[Segment]): An iterable segments.
+
+        Yields:
+            Segment: Segments with colorless style.
+        """
+
+        cache: Dict[Style, Style] = {}
+        for text, style, is_control in segments:
+            if style:
+                colorless_style = cache.get(style)
+                if colorless_style is None:
+                    colorless_style = style.without_color
+                    cache[style] = colorless_style
+                yield cls(text, colorless_style, is_control)
+            else:
+                yield cls(text, None, is_control)
+
 
 if __name__ == "__main__":  # pragma: no cover
-    lines = [[Segment("Hello")]]
-    lines = Segment.set_shape(lines, 50, 4, style=Style.parse("on blue"))
-    for line in lines:
-        print(line)
+    from rich.syntax import Syntax
+    from rich.text import Text
+    from rich.console import Console
 
-    print(Style.parse("on blue") + Style.parse("on red"))
+    code = """from rich.console import Console
+console = Console()
+text = Text.from_markup("Hello, [bold magenta]World[/]!")
+console.print(text)"""
+
+    text = Text.from_markup("Hello, [bold magenta]World[/]!")
+
+    console = Console()
+
+    console.rule("rich.Segment")
+    console.print(
+        "A Segment is the last step in the Rich render process before gemerating text with ANSI codes."
+    )
+    console.print("\nConsider the following code:\n")
+    console.print(Syntax(code, "python", line_numbers=True))
+    console.print()
+    console.print(
+        "When you call [b]print()[/b], Rich [i]renders[/i] the object in to the the following:\n"
+    )
+    fragments = list(console.render(text))
+    console.print(fragments)
+    console.print()
+    console.print("The Segments are then processed to produce the following output:\n")
+    console.print(text)
+    console.print(
+        "\nYou will only need to know this if you are implementing your own Rich renderables."
+    )

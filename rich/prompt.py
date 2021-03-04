@@ -16,8 +16,8 @@ class InvalidResponse(PromptError):
     """Exception to indicate a response was invalid. Raise this within process_response() to indicate an error
     and provide an error message.
 
-        Args:
-            message (Union[str, Text]): Error message.
+    Args:
+        message (Union[str, Text]): Error message.
     """
 
     def __init__(self, message: TextType) -> None:
@@ -299,7 +299,7 @@ class IntPrompt(PromptBase[int]):
     """A prompt that returns an integer.
 
     Example:
-        >>> burrito_count = IntPrompt.ask("How many burritos do you want to order", prompt_suffix="? ")
+        >>> burrito_count = IntPrompt.ask("How many burritos do you want to order")
 
     """
 

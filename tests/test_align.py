@@ -3,7 +3,7 @@ import io
 import pytest
 
 from rich.console import Console
-from rich.align import Align
+from rich.align import Align, VerticalCenter
 from rich.measure import Measurement
 
 
@@ -23,6 +23,14 @@ def test_bad_align_legal():
         Align("foo", "")
     with pytest.raises(ValueError):
         Align("foo", "LEFT")
+    with pytest.raises(ValueError):
+        Align("foo", vertical="somewhere")
+
+
+def test_repr():
+    repr(Align("foo", "left"))
+    repr(Align("foo", "center"))
+    repr(Align("foo", "right"))
 
 
 def test_align_left():
@@ -43,6 +51,42 @@ def test_align_right():
     assert console.file.getvalue() == "       foo\n"
 
 
+def test_align_top():
+    console = Console(file=io.StringIO(), width=10)
+    console.print(Align("foo", vertical="top"), height=5)
+    expected = "foo       \n          \n          \n          \n          \n"
+    result = console.file.getvalue()
+    print(repr(result))
+    assert result == expected
+
+
+def test_align_middle():
+    console = Console(file=io.StringIO(), width=10)
+    console.print(Align("foo", vertical="middle"), height=5)
+    expected = "          \n          \nfoo       \n          \n          \n"
+    result = console.file.getvalue()
+    print(repr(result))
+    assert result == expected
+
+
+def test_align_bottom():
+    console = Console(file=io.StringIO(), width=10)
+    console.print(Align("foo", vertical="bottom"), height=5)
+    expected = "          \n          \n          \n          \nfoo       \n"
+    result = console.file.getvalue()
+    print(repr(result))
+    assert result == expected
+
+
+def test_align_center_middle():
+    console = Console(file=io.StringIO(), width=10)
+    console.print(Align("foo\nbar", "center", vertical="middle"), height=5)
+    expected = "          \n   foo    \n   bar    \n          \n          \n"
+    result = console.file.getvalue()
+    print(repr(result))
+    assert result == expected
+
+
 def test_align_fit():
     console = Console(file=io.StringIO(), width=10)
     console.print(Align("foobarbaze", "center"))
@@ -51,7 +95,11 @@ def test_align_fit():
 
 def test_align_right_style():
     console = Console(
-        file=io.StringIO(), width=10, color_system="truecolor", force_terminal=True
+        file=io.StringIO(),
+        width=10,
+        color_system="truecolor",
+        force_terminal=True,
+        _environ={},
     )
     console.print(Align("foo", "right", style="on blue"))
     assert console.file.getvalue() == "\x1b[44m       \x1b[0m\x1b[44mfoo\x1b[0m\n"
@@ -87,3 +135,16 @@ def test_shortcuts():
     assert Align.right("foo").renderable == "foo"
     assert Align.center("foo").align == "center"
     assert Align.center("foo").renderable == "foo"
+
+
+def test_vertical_center():
+    console = Console(color_system=None, height=6)
+    console.begin_capture()
+    vertical_center = VerticalCenter("foo")
+    repr(vertical_center)
+    console.print(vertical_center)
+    result = console.end_capture()
+    print(repr(result))
+    expected = "   \n   \nfoo\n   \n   \n   \n"
+    assert result == expected
+    assert Measurement.get(console, vertical_center) == Measurement(3, 3)

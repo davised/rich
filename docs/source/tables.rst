@@ -52,12 +52,23 @@ See :ref:`appendix_box` for other box styles.
 The :class:`~rich.table.Table` class offers a number of configuration options to set the look and feel of the table, including how borders are rendered and the style and alignment of the columns.
 
 
-Adding columns
+Empty Tables
+~~~~~~~~~~~~
+
+Printing a table with no columns results in a blank line. If you are building a table dynamically and the data source has no columns, you might want to print something different. Here's how you might do that::
+
+    if table.columns:
+        print(table)
+    else:
+        print("[i]No data...[/i]")
+
+
+Adding Columns
 ~~~~~~~~~~~~~~
 
-You may also add columns by specifying them in the positional arguments of the :class:`~rich.table.Table` constructor. For example, we could construct a table with three columns like this:: 
+You may also add columns by specifying them in the positional arguments of the :class:`~rich.table.Table` constructor. For example, we could construct a table with three columns like this::
 
-    table = Table("Released", "Title", "Box Office", title="Star Wars Movies") 
+    table = Table("Released", "Title", "Box Office", title="Star Wars Movies")
 
 This allows you to specify the text of the column only. If you want to set other attributes, such as width and style, you can add an :class:`~rich.table.Column` class. Here's an example::
 
@@ -65,7 +76,7 @@ This allows you to specify the text of the column only. If you want to set other
     table = Table(
         "Released",
         "Title",
-        Column(header="Box Office", align="right"),
+        Column(header="Box Office", justify="right"),
         title="Star Wars Movies"
     )
 

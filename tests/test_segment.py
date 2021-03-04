@@ -96,3 +96,22 @@ def test_strip_styles():
 def test_strip_links():
     segments = [Segment("foo", Style(bold=True, link="https://www.example.org"))]
     assert list(Segment.strip_links(segments)) == [Segment("foo", Style(bold=True))]
+
+
+def test_remove_color():
+    segments = [
+        Segment("foo", Style(bold=True, color="red")),
+        Segment("bar", None),
+    ]
+    assert list(Segment.remove_color(segments)) == [
+        Segment("foo", Style(bold=True)),
+        Segment("bar", None),
+    ]
+
+
+def test_make_control():
+    segments = [Segment("foo"), Segment("bar")]
+    assert Segment.make_control(segments) == [
+        Segment.control("foo"),
+        Segment.control("bar"),
+    ]

@@ -12,6 +12,7 @@ Reference
    reference/emoji.rst
    reference/highlighter.rst
    reference/init.rst
+   reference/layout.rst
    reference/live.rst
    reference/logging.rst
    reference/markdown.rst
@@ -35,4 +36,5 @@ Reference
    reference/text.rst
    reference/theme.rst
    reference/traceback.rst
-   references/abc.rst
+   reference/tree.rst
+   reference/abc.rst

@@ -122,21 +122,20 @@ def test_link_id():
 
 
 def test_get_html_style():
-    expected = "color: #7f7fbf; background-color: #800000; font-weight: bold; font-style: italic; text-decoration: underline; text-decoration: line-through; text-decoration: overline"
-    assert (
-        Style(
-            reverse=True,
-            dim=True,
-            color="red",
-            bgcolor="blue",
-            bold=True,
-            italic=True,
-            underline=True,
-            strike=True,
-            overline=True,
-        ).get_html_style()
-        == expected
-    )
+    expected = "color: #7f7fbf; text-decoration-color: #7f7fbf; background-color: #800000; font-weight: bold; font-style: italic; text-decoration: underline; text-decoration: line-through; text-decoration: overline"
+    html_style = Style(
+        reverse=True,
+        dim=True,
+        color="red",
+        bgcolor="blue",
+        bold=True,
+        italic=True,
+        underline=True,
+        strike=True,
+        overline=True,
+    ).get_html_style()
+    print(repr(html_style))
+    assert html_style == expected
 
 
 def test_chain():
@@ -196,3 +195,13 @@ def test_background_style():
     assert Style(bold=True, color="yellow", bgcolor="red").background_style == Style(
         bgcolor="red"
     )
+
+
+def test_without_color():
+    style = Style(bold=True, color="red", bgcolor="blue")
+    colorless_style = style.without_color
+    assert colorless_style.color == None
+    assert colorless_style.bgcolor == None
+    assert colorless_style.bold == True
+    null_style = Style.null()
+    assert null_style.without_color == null_style

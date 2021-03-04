@@ -1,5 +1,14 @@
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable, List, NamedTuple, Optional, Tuple, Union
+from dataclasses import dataclass, field, replace
+from typing import (
+    Dict,
+    TYPE_CHECKING,
+    Iterable,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Union,
+)
 
 from . import box, errors
 from ._loop import loop_first_last, loop_last
@@ -34,13 +43,13 @@ class Column:
     footer: "RenderableType" = ""
     """RenderableType: Renderable for the footer (typically a string)"""
 
-    header_style: StyleType = "table.header"
+    header_style: StyleType = ""
     """StyleType: The style of the header."""
 
-    footer_style: StyleType = "table.footer"
+    footer_style: StyleType = ""
     """StyleType: The style of the footer."""
 
-    style: StyleType = "none"
+    style: StyleType = ""
     """StyleType: The style of the column."""
 
     justify: "JustifyMethod" = "left"
@@ -68,6 +77,10 @@ class Column:
     """Index of column."""
 
     _cells: List["RenderableType"] = field(default_factory=list)
+
+    def copy(self) -> "Column":
+        """Return a copy of this Column."""
+        return replace(self, _cells=[])
 
     @property
     def cells(self) -> Iterable["RenderableType"]:
@@ -122,13 +135,14 @@ class Table(JupyterMixin):
         leading (bool, optional): Number of blank lines between rows (precludes ``show_lines``). Defaults to 0.
         style (Union[str, Style], optional): Default style for the table. Defaults to "none".
         row_styles (List[Union, str], optional): Optional list of row styles, if more that one style is give then the styles will alternate. Defaults to None.
-        header_style (Union[str, Style], optional): Style of the header. Defaults to None.
-        footer_style (Union[str, Style], optional): Style of the footer. Defaults to None.
+        header_style (Union[str, Style], optional): Style of the header. Defaults to "table.header".
+        footer_style (Union[str, Style], optional): Style of the footer. Defaults to "table.footer".
         border_style (Union[str, Style], optional): Style of the border. Defaults to None.
         title_style (Union[str, Style], optional): Style of the title. Defaults to None.
         caption_style (Union[str, Style], optional): Style of the caption. Defaults to None.
         title_justify (str, optional): Justify method for title. Defaults to "center".
         caption_justify (str, optional): Justify method for caption. Defaults to "center".
+        highlight (bool, optional): Highlight cell contents (if str). Defaults to False.
     """
 
     columns: List[Column]
@@ -154,25 +168,18 @@ class Table(JupyterMixin):
         leading: int = 0,
         style: StyleType = "none",
         row_styles: Iterable[StyleType] = None,
-        header_style: StyleType = None,
-        footer_style: StyleType = None,
+        header_style: Optional[StyleType] = "table.header",
+        footer_style: Optional[StyleType] = "table.footer",
         border_style: StyleType = None,
         title_style: StyleType = None,
         caption_style: StyleType = None,
         title_justify: "JustifyMethod" = "center",
         caption_justify: "JustifyMethod" = "center",
+        highlight: bool = False,
     ) -> None:
 
         self.columns: List[Column] = []
         self.rows: List[Row] = []
-        append_column = self.columns.append
-        for index, header in enumerate(headers):
-            if isinstance(header, str):
-                append_column(Column(_index=index, header=header))
-            else:
-                header._index = index
-                append_column(header)
-
         self.title = title
         self.caption = caption
         self.width = width
@@ -189,18 +196,27 @@ class Table(JupyterMixin):
         self.leading = leading
         self.collapse_padding = collapse_padding
         self.style = style
-        self.header_style = header_style
-        self.footer_style = footer_style
+        self.header_style = header_style or ""
+        self.footer_style = footer_style or ""
         self.border_style = border_style
         self.title_style = title_style
         self.caption_style = caption_style
         self.title_justify = title_justify
         self.caption_justify = caption_justify
+        self.highlight = highlight
         self.row_styles = list(row_styles or [])
+        append_column = self.columns.append
+        for header in headers:
+            if isinstance(header, str):
+                self.add_column(header=header)
+            else:
+                header._index = len(self.columns)
+                append_column(header)
 
     @classmethod
     def grid(
         cls,
+        *headers: Union[Column, str],
         padding: PaddingDimensions = 0,
         collapse_padding: bool = True,
         pad_edge: bool = False,
@@ -209,6 +225,7 @@ class Table(JupyterMixin):
         """Get a table with no lines, headers, or footer.
 
         Args:
+            *headers (Union[Column, str]): Column headers, either as a string, or :class:`~rich.table.Column` instance.
             padding (PaddingDimensions, optional): Get padding around cells. Defaults to 0.
             collapse_padding (bool, optional): Enable collapsing of padding around cells. Defaults to True.
             pad_edge (bool, optional): Enable padding around edges of table. Defaults to False.
@@ -218,6 +235,7 @@ class Table(JupyterMixin):
             Table: A table instance.
         """
         return cls(
+            *headers,
             box=None,
             padding=padding,
             collapse_padding=collapse_padding,
@@ -322,9 +340,9 @@ class Table(JupyterMixin):
                 Defaults to "".
             footer (RenderableType, optional): Text or renderable for the footer.
                 Defaults to "".
-            header_style (Union[str, Style], optional): Style for the header. Defaults to "none".
-            footer_style (Union[str, Style], optional): Style for the header. Defaults to "none".
-            style (Union[str, Style], optional): Style for the column cells. Defaults to "none".
+            header_style (Union[str, Style], optional): Style for the header, or None for default. Defaults to None.
+            footer_style (Union[str, Style], optional): Style for the footer, or None for default. Defaults to None.
+            style (Union[str, Style], optional): Style for the column cells, or None for default. Defaults to None.
             justify (JustifyMethod, optional): Alignment for cells. Defaults to "left".
             width (int, optional): Desired width of column in characters, or None to fit to contents. Defaults to None.
             min_width (Optional[int], optional): Minimum width of column, or ``None`` for no minimum. Defaults to None.
@@ -337,13 +355,9 @@ class Table(JupyterMixin):
             _index=len(self.columns),
             header=header,
             footer=footer,
-            header_style=Style.pick_first(
-                header_style, self.header_style, "table.header"
-            ),
-            footer_style=Style.pick_first(
-                footer_style, self.footer_style, "table.footer"
-            ),
-            style=Style.pick_first(style, self.style, "table.cell"),
+            header_style=header_style or "",
+            footer_style=footer_style or "",
+            style=style or "",
             justify=justify,
             overflow=overflow,
             width=width,
@@ -405,6 +419,10 @@ class Table(JupyterMixin):
         self, console: "Console", options: "ConsoleOptions"
     ) -> "RenderResult":
 
+        if not self.columns:
+            yield Segment("\n")
+            return
+
         max_width = options.max_width
         if self.width is not None:
             max_width = self.width
@@ -413,13 +431,17 @@ class Table(JupyterMixin):
         widths = self._calculate_column_widths(console, max_width - extra_width)
         table_width = sum(widths) + extra_width
 
-        render_options = options.update(width=table_width)
+        render_options = options.update(
+            width=table_width, highlight=self.highlight, height=None
+        )
 
         def render_annotation(
             text: TextType, style: StyleType, justify: "JustifyMethod" = "center"
         ) -> "RenderResult":
             render_text = (
-                console.render_str(text, style=style) if isinstance(text, str) else text
+                console.render_str(text, style=style, highlight=False)
+                if isinstance(text, str)
+                else text
             )
             return console.render(
                 render_text, options=render_options.update(justify=justify)
@@ -448,7 +470,6 @@ class Table(JupyterMixin):
         widths = [_range.maximum or 1 for _range in width_ranges]
         get_padding_width = self._get_padding_width
         extra_width = self._extra_width
-
         if self.expand:
             ratios = [col.ratio or 0 for col in columns if col.flexible]
             if any(ratios):
@@ -476,7 +497,6 @@ class Table(JupyterMixin):
                 max_width,
             )
             table_width = sum(widths)
-
             # last resort, reduce columns evenly
             if table_width > max_width:
                 excess_width = table_width - max_width
@@ -487,7 +507,7 @@ class Table(JupyterMixin):
                 self._measure_column(console, column, width)
                 for width, column in zip(widths, columns)
             ]
-            widths = [_range.maximum or 1 for _range in width_ranges]
+            widths = [_range.maximum or 0 for _range in width_ranges]
 
         if (table_width < max_width and self.expand) or (
             self.min_width is not None and table_width < (self.min_width - extra_width)
@@ -541,7 +561,9 @@ class Table(JupyterMixin):
                 excess_width = total_width - max_width
         return widths
 
-    def _get_cells(self, column_index: int, column: Column) -> Iterable[_Cell]:
+    def _get_cells(
+        self, console: "Console", column_index: int, column: Column
+    ) -> Iterable[_Cell]:
         """Get all the cells with padding and optional header."""
 
         collapse_padding = self.collapse_padding
@@ -552,11 +574,12 @@ class Table(JupyterMixin):
         first_column = column_index == 0
         last_column = column_index == len(self.columns) - 1
 
-        def add_padding(
-            renderable: "RenderableType", first_row: bool, last_row: bool
-        ) -> "RenderableType":
-            if not any_padding:
-                return renderable
+        _padding_cache: Dict[Tuple[bool, bool], Tuple[int, int, int, int]] = {}
+
+        def get_padding(first_row: bool, last_row: bool) -> Tuple[int, int, int, int]:
+            cached = _padding_cache.get((first_row, last_row))
+            if cached:
+                return cached
             top, right, bottom, left = padding
 
             if collapse_padding:
@@ -574,19 +597,34 @@ class Table(JupyterMixin):
                     top = 0
                 if last_row:
                     bottom = 0
-            _padding = Padding(renderable, (top, right, bottom, left))
+            _padding = (top, right, bottom, left)
+            _padding_cache[(first_row, last_row)] = _padding
             return _padding
 
         raw_cells: List[Tuple[StyleType, "RenderableType"]] = []
         _append = raw_cells.append
+        get_style = console.get_style
         if self.show_header:
-            _append((column.header_style, column.header))
+            header_style = get_style(self.header_style or "") + get_style(
+                column.header_style
+            )
+            _append((header_style, column.header))
+        cell_style = get_style(self.style or "") + get_style(column.style or "")
         for cell in column.cells:
-            _append((column.style, cell))
+            _append((cell_style, cell))
         if self.show_footer:
-            _append((column.footer_style, column.footer))
-        for first, last, (style, renderable) in loop_first_last(raw_cells):
-            yield _Cell(style, add_padding(renderable, first, last))
+            footer_style = get_style(self.footer_style or "") + get_style(
+                column.footer_style
+            )
+            _append((footer_style, column.footer))
+
+        if any_padding:
+            _Padding = Padding
+            for first, last, (style, renderable) in loop_first_last(raw_cells):
+                yield _Cell(style, _Padding(renderable, get_padding(first, last)))
+        else:
+            for (style, renderable) in raw_cells:
+                yield _Cell(style, renderable)
 
     def _get_padding_width(self, column_index: int) -> int:
         """Get extra width from padding."""
@@ -617,7 +655,7 @@ class Table(JupyterMixin):
         append_min = min_widths.append
         append_max = max_widths.append
         get_render_width = Measurement.get
-        for cell in self._get_cells(column._index, column):
+        for cell in self._get_cells(console, column._index, column):
             _min, _max = get_render_width(console, cell.renderable, max_width)
             append_min(_min)
             append_max(_max)
@@ -639,7 +677,7 @@ class Table(JupyterMixin):
 
         border_style = table_style + console.get_style(self.border_style or "")
         _column_cells = (
-            self._get_cells(column_index, column)
+            self._get_cells(console, column_index, column)
             for column_index, column in enumerate(self.columns)
         )
         row_cells: List[Tuple[_Cell, ...]] = list(zip(*_column_cells))
@@ -711,6 +749,7 @@ class Table(JupyterMixin):
                     justify=column.justify,
                     no_wrap=column.no_wrap,
                     overflow=column.overflow,
+                    height=None,
                 )
                 cell_style = table_style + row_style + get_style(cell.style)
                 lines = console.render_lines(
@@ -831,7 +870,7 @@ if __name__ == "__main__":  # pragma: no cover
 
     table.expand = True
     header("expand=True")
-    console.print(table, justify="center")
+    console.print(table)
 
     table.width = 50
     header("width=50")

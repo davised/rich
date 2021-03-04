@@ -30,7 +30,9 @@ class Panel(JupyterMixin):
         style (str, optional): The style of the panel (border and contents). Defaults to "none".
         border_style (str, optional): The style of the border. Defaults to "none".
         width (Optional[int], optional): Optional width of panel. Defaults to None to auto-detect.
+        height (Optional[int], optional): Optional height of panel. Defaults to None to auto-detect.
         padding (Optional[PaddingDimensions]): Optional padding around renderable. Defaults to 0.
+        highlight (bool, optional): Enable automatic highlighting of panel title (if str). Defaults to False.
     """
 
     def __init__(
@@ -45,7 +47,9 @@ class Panel(JupyterMixin):
         style: StyleType = "none",
         border_style: StyleType = "none",
         width: Optional[int] = None,
+        height: Optional[int] = None,
         padding: PaddingDimensions = (0, 1),
+        highlight: bool = False,
     ) -> None:
         self.renderable = renderable
         self.box = box
@@ -56,7 +60,9 @@ class Panel(JupyterMixin):
         self.style = style
         self.border_style = border_style
         self.width = width
+        self.height = height
         self.padding = padding
+        self.highlight = highlight
 
     @classmethod
     def fit(
@@ -111,7 +117,11 @@ class Panel(JupyterMixin):
         )
         style = console.get_style(self.style)
         border_style = style + console.get_style(self.border_style)
-        width = options.max_width if self.width is None else self.width
+        width = (
+            options.max_width
+            if self.width is None
+            else min(options.max_width, self.width)
+        )
 
         safe_box: bool = console.safe_box if self.safe_box is None else self.safe_box  # type: ignore
         box = self.box.substitute(options, safe=safe_box)
@@ -125,19 +135,24 @@ class Panel(JupyterMixin):
             if self.expand
             else Measurement.get(console, renderable, width - 2).maximum
         )
+        child_height = self.height or options.height or None
+        if child_height:
+            child_height -= 2
         if title_text is not None:
             child_width = min(
-                options.max_width, max(child_width, title_text.cell_len + 2)
+                options.max_width - 2, max(child_width, title_text.cell_len + 2)
             )
 
         width = child_width + 2
-        child_options = options.update(width=child_width)
+        child_options = options.update(
+            width=child_width, height=child_height, highlight=self.highlight
+        )
         lines = console.render_lines(renderable, child_options, style=style)
 
         line_start = Segment(box.mid_left, border_style)
         line_end = Segment(f"{box.mid_right}", border_style)
         new_line = Segment.line()
-        if title_text is None:
+        if title_text is None or width <= 4:
             yield Segment(box.get_top([width - 2]), border_style)
         else:
             title_text.align(self.title_align, width - 4, character=box.top)
@@ -182,15 +197,12 @@ if __name__ == "__main__":  # pragma: no cover
     from .box import ROUNDED, DOUBLE
 
     p = Panel(
-        Panel.fit(
-            Text.from_markup("[bold magenta]Hello World!"),
-            box=ROUNDED,
-            safe_box=True,
-            style="on red",
-        ),
-        title="[b]Hello, World",
+        "Hello, World!",
+        title="rich.Panel",
+        style="white on blue",
         box=DOUBLE,
+        padding=1,
     )
 
-    print(p)
+    c.print()
     c.print(p)

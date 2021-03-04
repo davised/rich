@@ -243,7 +243,7 @@ def test_console_width():
 def test_join():
     test = Text("bar").join([Text("foo", "red"), Text("baz", "blue")])
     assert str(test) == "foobarbaz"
-    assert test._spans == [Span(0, 3, "red"), Span(3, 6, ""), Span(6, 9, "blue")]
+    assert test._spans == [Span(0, 3, "red"), Span(6, 9, "blue")]
 
 
 def test_trim_spans():
@@ -304,6 +304,15 @@ def test_split():
     assert split[1] == line2
 
     assert list(Text("foo").split("\n")) == [Text("foo")]
+
+
+def test_split_spans():
+    test = Text.from_markup("[red]Hello\n[b]World")
+    lines = test.split("\n")
+    assert lines[0].plain == "Hello"
+    assert lines[1].plain == "World"
+    assert lines[0].spans == [Span(0, 5, "red")]
+    assert lines[1].spans == [Span(0, 5, "red"), Span(0, 5, "bold")]
 
 
 def test_divide():
@@ -659,3 +668,10 @@ def test_slice():
 
     with pytest.raises(TypeError):
         text[::-1]
+
+
+def test_wrap_invalid_style():
+    # https://github.com/willmcgugan/rich/issues/987
+    console = Console(width=100, color_system="truecolor")
+    a = "[#######.................] xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [#######.................]"
+    console.print(a, justify="full")

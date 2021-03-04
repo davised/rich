@@ -1,25 +1,17 @@
 from __future__ import absolute_import
 
-import os.path
+import os
 import platform
 import sys
 from dataclasses import dataclass, field
-from textwrap import indent
 from traceback import walk_tb
 from types import TracebackType
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, Iterable, List, Optional, Type
 
 from pygments.lexers import guess_lexer_for_filename
-from pygments.token import (
-    Comment,
-    Keyword,
-    Name,
-    Number,
-    Operator,
-    String,
-    Token,
-    Text as TextToken,
-)
+from pygments.token import Comment, Keyword, Name, Number, Operator, String
+from pygments.token import Text as TextToken
+from pygments.token import Token
 
 from . import pretty
 from ._loop import loop_first, loop_last
@@ -80,7 +72,7 @@ def install(
     def excepthook(
         type_: Type[BaseException],
         value: BaseException,
-        traceback: TracebackType,
+        traceback: Optional[TracebackType],
     ) -> None:
         traceback_console.print(
             Traceback.from_exception(
@@ -96,9 +88,55 @@ def install(
             )
         )
 
-    old_excepthook = sys.excepthook
-    sys.excepthook = excepthook
-    return old_excepthook
+    def ipy_excepthook_closure(ip) -> None:  # pragma: no cover
+        tb_data = {}  # store information about showtraceback call
+        default_showtraceback = ip.showtraceback  # keep reference of default traceback
+
+        def ipy_show_traceback(*args, **kwargs) -> None:
+            """wrap the default ip.showtraceback to store info for ip._showtraceback"""
+            nonlocal tb_data
+            tb_data = kwargs
+            default_showtraceback(*args, **kwargs)
+
+        def ipy_display_traceback(*args, is_syntax: bool = False, **kwargs) -> None:
+            """Internally called traceback from ip._showtraceback"""
+            nonlocal tb_data
+            exc_tuple = ip._get_exc_info()
+
+            # do not display trace on syntax error
+            tb: Optional[TracebackType] = None if is_syntax else exc_tuple[2]
+
+            # determine correct tb_offset
+            compiled = tb_data.get("running_compiled_code", False)
+            tb_offset = tb_data.get("tb_offset", 1 if compiled else 0)
+            # remove ipython internal frames from trace with tb_offset
+            for _ in range(tb_offset):
+                if tb is None:
+                    break
+                tb = tb.tb_next
+
+            excepthook(exc_tuple[0], exc_tuple[1], tb)
+            tb_data = {}  # clear data upon usage
+
+        # replace _showtraceback instead of showtraceback to allow ipython features such as debugging to work
+        # this is also what the ipython docs recommends to modify when subclassing InteractiveShell
+        ip._showtraceback = ipy_display_traceback
+        # add wrapper to capture tb_data
+        ip.showtraceback = ipy_show_traceback
+        ip.showsyntaxerror = lambda *args, **kwargs: ipy_display_traceback(
+            *args, is_syntax=True, **kwargs
+        )
+
+    try:  # pragma: no cover
+        # if wihin ipython, use customized traceback
+        ip = get_ipython()  # type: ignore
+        ipy_excepthook_closure(ip)
+        return sys.excepthook
+    except Exception:
+        # otherwise use default system hook
+        old_excepthook = sys.excepthook
+        sys.excepthook = excepthook
+        return old_excepthook
 
 
 @dataclass
@@ -154,10 +192,18 @@ class Traceback:
         locals_max_string (int, optional): Maximum length of string before truncating, or None to disable. Defaults to 80.
     """
 
+    LEXERS = {
+        "": "text",
+        ".py": "python",
+        ".pxd": "cython",
+        ".pyx": "cython",
+        ".pxi": "pyrex",
+    }
+
     def __init__(
         self,
         trace: Trace = None,
-        width: Optional[int] = 88,
+        width: Optional[int] = 100,
         extra_lines: int = 3,
         theme: Optional[str] = None,
         word_wrap: bool = False,
@@ -222,7 +268,7 @@ class Traceback:
         rich_traceback = cls.extract(
             exc_type, exc_value, traceback, show_locals=show_locals
         )
-        return Traceback(
+        return cls(
             rich_traceback,
             width=width,
             extra_lines=extra_lines,
@@ -262,10 +308,19 @@ class Traceback:
         stacks: List[Stack] = []
         is_cause = False
 
+        from rich import _IMPORT_CWD
+
+        def safe_str(_object: Any) -> str:
+            """Don't allow exceptions from __str__ to propegate."""
+            try:
+                return str(_object)
+            except Exception:
+                return "<exception str() failed>"
+
         while True:
             stack = Stack(
-                exc_type=str(exc_type.__name__),
-                exc_value=str(exc_value),
+                exc_type=safe_str(exc_type.__name__),
+                exc_value=safe_str(exc_value),
                 is_cause=is_cause,
             )
 
@@ -283,9 +338,11 @@ class Traceback:
 
             for frame_summary, line_no in walk_tb(traceback):
                 filename = frame_summary.f_code.co_filename
-                filename = os.path.abspath(filename) if filename else "?"
+                if filename and not filename.startswith("<"):
+                    if not os.path.isabs(filename):
+                        filename = os.path.join(_IMPORT_CWD, filename)
                 frame = Frame(
-                    filename=filename,
+                    filename=filename or "?",
                     lineno=line_no,
                     name=frame_summary.f_code.co_name,
                     locals={
@@ -425,6 +482,22 @@ class Traceback:
         )
         yield syntax_error_text
 
+    @classmethod
+    def _guess_lexer(cls, filename: str, code: str) -> str:
+        ext = os.path.splitext(filename)[-1]
+        if not ext:
+            # No extension, look at first line to see if it is a hashbang
+            # Note, this is an educated guess and not a guarantee
+            # If it fails, the only downside is that the code is highlighted strangely
+            new_line_index = code.index("\n")
+            first_line = code[:new_line_index] if new_line_index != -1 else code
+            if first_line.startswith("#!") and "python" in first_line.lower():
+                return "python"
+        lexer_name = (
+            cls.LEXERS.get(ext) or guess_lexer_for_filename(filename, code).name
+        )
+        return lexer_name
+
     @render_group()
     def _render_stack(self, stack: Stack) -> RenderResult:
         path_highlighter = PathHighlighter()
@@ -442,10 +515,22 @@ class Traceback:
             """
             code = code_cache.get(filename)
             if code is None:
-                with open(filename, "rt") as code_file:
+                with open(
+                    filename, "rt", encoding="utf-8", errors="replace"
+                ) as code_file:
                     code = code_file.read()
                 code_cache[filename] = code
             return code
+
+        def render_locals(frame: Frame) -> Iterable[ConsoleRenderable]:
+            if frame.locals:
+                yield render_scope(
+                    frame.locals,
+                    title="locals",
+                    indent_guides=self.indent_guides,
+                    max_length=self.locals_max_length,
+                    max_string=self.locals_max_string,
+                )
 
         for first, frame in loop_first(stack.frames):
             text = Text.assemble(
@@ -460,11 +545,11 @@ class Traceback:
                 yield ""
             yield text
             if frame.filename.startswith("<"):
+                yield from render_locals(frame)
                 continue
             try:
                 code = read_code(frame.filename)
-                lexer = guess_lexer_for_filename(frame.filename, code)
-                lexer_name = lexer.name
+                lexer_name = self._guess_lexer(frame.filename, code)
                 syntax = Syntax(
                     code,
                     lexer_name,
@@ -478,22 +563,19 @@ class Traceback:
                     word_wrap=self.word_wrap,
                     code_width=88,
                     indent_guides=self.indent_guides,
+                    dedent=False,
                 )
                 yield ""
-            except Exception:
-                pass
+            except Exception as error:
+                yield Text.assemble(
+                    (f"\n{error}", "traceback.error"),
+                )
             else:
                 yield (
                     Columns(
                         [
                             syntax,
-                            render_scope(
-                                frame.locals,
-                                title="locals",
-                                indent_guides=self.indent_guides,
-                                max_length=self.locals_max_length,
-                                max_string=self.locals_max_string,
-                            ),
+                            *render_locals(frame),
                         ],
                         padding=1,
                     )
@@ -517,9 +599,9 @@ if __name__ == "__main__":  # pragma: no cover
 
         zed = {
             "characters": {
-                "Paul Atriedies",
+                "Paul Atreides",
                 "Vladimir Harkonnen",
-                "Thufir Haway",
+                "Thufir Hawat",
                 "Duncan Idaho",
             },
             "atomic_types": (None, False, True),

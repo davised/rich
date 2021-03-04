@@ -367,7 +367,7 @@ class MarkdownContext:
 
     def on_text(self, text: str, node_type: str) -> None:
         """Called when the parser visits text."""
-        if node_type == "code" and self._syntax is not None:
+        if node_type in "code" and self._syntax is not None:
             highlight_text = self._syntax.highlight(text)
             highlight_text.rstrip()
             self.stack.top.on_text(
@@ -517,21 +517,29 @@ class Markdown(JupyterMixin):
                     if current.literal:
                         element.on_text(context, current.literal.rstrip())
                     context.stack.pop()
-                    if new_line:
-                        yield Segment("\n")
-                    yield from console.render(element, context.options)
-                    element.on_leave(context)
+                    if context.stack.top.on_child_close(context, element):
+                        if new_line:
+                            yield Segment("\n")
+                        yield from console.render(element, context.options)
+                        element.on_leave(context)
+                    else:
+                        element.on_leave(context)
                     new_line = element.new_line
 
 
 if __name__ == "__main__":  # pragma: no cover
 
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(
         description="Render Markdown to the console with Rich"
     )
-    parser.add_argument("path", metavar="PATH", help="path to markdown file")
+    parser.add_argument(
+        "path",
+        metavar="PATH",
+        help="path to markdown file, or - for stdin",
+    )
     parser.add_argument(
         "-c",
         "--force-color",
@@ -587,14 +595,18 @@ if __name__ == "__main__":  # pragma: no cover
 
     from rich.console import Console
 
-    with open(args.path, "rt", encoding="utf-8") as markdown_file:
-        markdown = Markdown(
-            markdown_file.read(),
-            justify="full" if args.justify else "left",
-            code_theme=args.code_theme,
-            hyperlinks=args.hyperlinks,
-            inline_code_lexer=args.inline_code_lexer,
-        )
+    if args.path == "-":
+        markdown_body = sys.stdin.read()
+    else:
+        with open(args.path, "rt", encoding="utf-8") as markdown_file:
+            markdown_body = markdown_file.read()
+    markdown = Markdown(
+        markdown_body,
+        justify="full" if args.justify else "left",
+        code_theme=args.code_theme,
+        hyperlinks=args.hyperlinks,
+        inline_code_lexer=args.inline_code_lexer,
+    )
     if args.page:
         import pydoc
         import io
